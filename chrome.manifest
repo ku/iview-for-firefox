@@ -1,0 +1,2 @@
+content	iviewfx	content/
+overlay	chrome://browser/content/browser.xul	chrome://iviewfx/content/overlay.xul

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<RDF:RDF xmlns:em="http://www.mozilla.org/2004/em-rdf#"
+         xmlns:NC="http://home.netscape.com/NC-rdf#"
+         xmlns:RDF="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <RDF:Description RDF:about="rdf:#$S8CaT1"
+                   em:id="{ec8030f7-c20a-464f-9b0e-13a3a9e97384}"
+                   em:minVersion="3.0b3"
+                   em:maxVersion="3.0.*" />
+  <RDF:Description RDF:about="urn:mozilla:install-manifest"
+                   em:id="iviewfx@ido.nu"
+                   em:name="iview"
+                   em:version="0.0.1"
+                   em:description=""
+                   em:creator="KUMAGAI Kentaro"
+                   em:homepageURL="http://iview.ido.nu/"
+                   em:updateURL="http://iview.ido.nu/app/update.rdf"
+				   >
+    <em:targetApplication RDF:resource="rdf:#$S8CaT1"/>
+  </RDF:Description>
+</RDF:RDF>
