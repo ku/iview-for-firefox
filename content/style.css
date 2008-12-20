@@ -1,0 +1,152 @@
+
+body {
+	font-family: 'Hiragino Kaku Gothic Pro W3','ÉqÉâÉMÉmäpÉS Pro W3','ÉÅÉCÉäÉI', 'Verdana',sans-serif;
+	background: black;
+	margin: 0;
+	padding: 0;
+}
+* {
+	color: white;
+}
+
+#imagecontainer {
+	float: left;
+	/*
+	overflow:auto;
+	position:absolute;
+	border: 1px solid white;
+	*/
+}
+
+#loading {
+	position: relative;
+	display: none;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+#image-caption {
+	display: block;
+	position: fixed;
+	bottom: 0.2em;
+	right: 0.2em;
+	opacity: 0.7;
+	background: black;
+
+
+	-moz-border-radius: 4px;
+	font-size:small;
+	/*
+	margin-left:auto;
+	margin-right:auto;
+	*/
+	opacity:0.7;
+	padding:0.3em;
+}
+
+#image {
+	display: none;
+	margin-top: 1em;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+#container {
+		
+}
+#sources {
+	visibility: hidden;
+	width: 220px;
+	float:left;
+	height: 100%;
+	overflow:scroll;
+	overflow-x:hidden;
+}
+
+#sources ul {
+	padding: 0;
+}
+#sources li {
+	list-style: none;
+	/*
+	float: left;
+	*/
+	cursor: pointer;
+	font-size: x-small;
+	margin-left: 16px;
+}
+
+#status {
+	position: fixed;
+	left: 240px;
+	top: 0.2em;
+	font-size: small;
+	color: #999;
+
+	display: block;
+	opacity: 0.7;
+	background: black;
+
+	-moz-border-radius: 4px;
+	padding:0.3em;
+
+	text-align: center;
+
+}
+
+#help {
+	position: absolute;
+	display: block;
+	width: 100%;
+}
+#help-label {
+	font-weight: bold;
+	position: fixed;
+	top: 0.4em;
+	right: 0.4em;
+
+}
+#help-content {
+	position: relative;
+	display: none;
+	top: 30px;
+	width: 500px;
+	margin-left: auto;
+	margin-right: auto;
+	background: #121224;
+	padding: 2em;
+	-moz-border-radius: 1em;
+	line-height: 1.7em;
+}
+
+#help-content dl {
+	margin-top: 0;
+}
+#help-content dt {
+	float: left;
+	font-weight: bold;
+}
+#help-content dd {
+	margin-left: 1.5em;
+}
+
+#help-content a {
+	text-decoration: underline;
+	
+}
+
+#help-content .about-iview {
+	text-align: right;
+	font-size: small;
+}
+
+a {
+	text-decoration: none;
+}
+
+#reblogging {
+	position: fixed;
+	display: none;
+	right: 3em;
+	bottom: 3em;
+}

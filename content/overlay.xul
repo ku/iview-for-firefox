@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<overlay
+  id="test-overlay"
+  xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+	<script type="text/javascript; version=1.7"
+		src="chrome://iviewfx/content/iview.js" />
+	<script type="text/javascript; version=1.7" charset="utf-8">
+	// <![CDATA[
+		var iviewfx = {
+			launch: function () {
+				var DEBUG = 0;
+
+				if ( DEBUG ) {
+					var url = makeURI("http://localhost/iview/content/iview.html?.rand=" + Math.random());
+				} else {
+					var url = makeURI("chrome://iviewfx/content/iview.html?.rand=" + Math.random());
+				}
+
+				var tab = Application.activeWindow.open(url);
+				window.setTimeout( function () {
+					iviewfx.initEventHandlers(tab);
+				}, 50 );
+			},
+			initEventHandlers: function (tab) {
+				var loader = Components.classes["@mozilla.org/moz/jssubscript-loader;1"].
+				getService(Components.interfaces.mozIJSSubScriptLoader).loadSubScript;
+
+				if ( this.instance ) {
+					this.instance.dealloc();
+				}
+
+				var glob = function () {};
+				glob.Cc = Cc;
+				glob.Ci = Ci;
+				glob.Application = Application;
+				glob.browserWindow = window;
+				this.glob = glob;
+			
+				try {
+					loader('chrome://iviewfx/content/mochikit.js', this.glob);
+					loader('chrome://iviewfx/content/utils.js', this.glob);
+					this.instance = loader('chrome://iviewfx/content/iview.js', this.glob);
+					this.instance.init(tab);
+					tab.focus();
+				} catch(e) {
+					Firebug.Console.log(e);
+				}
+			}
+		};
+	// ]]>
+	</script>
+  <menubar id="menu_ToolsPopup">
+			<menuitem
+				disabled="false"
+				label="Launch iview"
+				id="iview-launch"
+				insertbefore="sanitizeSeparator"
+				oncommand="iviewfx.launch();" />
+  </menubar>
+
+</overlay>

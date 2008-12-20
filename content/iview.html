@@ -1,0 +1,430 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+	<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+	<link rel="stylesheet" type="text/css" href="./style.css" media="all" />
+	<title>iview for Firefox</title>
+</head>
+<!--script type="text/javascript" charset="utf-8" src="./jquery-1.2.6.min.js"></script-->
+
+<script type="text/javascript" charset="utf-8">
+// <![CDATA[
+
+var debugLocal = 0;
+
+var log = function () {
+	window.console && console.log(arguments);
+}
+
+// dummy listener
+var IPC = function (doc, eventName) {
+	this.doc = doc;
+	this.fromContent = eventName;
+	this.eventName = eventName || "iview-ipc-from-chromeWindow";
+	return this;
+}
+IPC.prototype.sendMessage = function (msg, eventName) {
+	var request = this.doc.createEvent("DataContainerEvent");
+	request.initEvent(this.eventName, true, false);
+	if ( this.fromContent ) {
+		request.setData("json", uneval(msg));
+	} else {
+		request.setData("msg", msg);
+	}
+	this.doc.dispatchEvent(request);
+}
+
+var __feedView;
+function FeedView(id, ipc) {
+	this.ul = document.getElementById(id);
+	this.ipc = ipc;
+
+	this.feeds = {};
+	
+	this.feedListWidth = document.getElementById("sources").offsetWidth;
+
+	document.addEventListener("keypress", this._keypress_listener, false );
+
+	var self = this;
+	this.timeoutTimer = window.setTimeout( function () {
+		self.status("Failed to connect iview addon. Please open again from [Tools] menu.");
+	}, 3 * 1000);
+
+	this.reset();
+}
+
+FeedView.prototype.reset = function () {
+	this.imageIndex = 0;
+	this.images = [];
+	this.selectedFeed = 0;
+
+	this.showFeedList = true;
+
+	this.progress = '';
+
+	this.prefetch_size = 10;
+	this.caption();
+}
+
+FeedView.prototype._keypress_listener =  function (ev) {
+	var self = __feedView;
+	var c = String.fromCharCode(ev.charCode).toLowerCase();
+
+	if ( ev.currentTarget != document )
+		return;
+
+	if ( ev.ctrlKey || ev.altKey || ev.shiftKey || ev.metaKey )
+		return;
+
+	if ( c == 't' ) {
+		self.setReblogging();
+		self.ipc.sendMessage( {
+			event: 'share',
+			image: self.images[self.imageIndex]
+		} );
+	} else if ( c == 'j' ) {
+		self.goRelative(1);
+	} else if ( c == 'k' ) {
+		self.goRelative(-1);
+	} else if ( c == 'p' ) {
+		self.launchPicLens();
+	} else if ( c == 'z' ) {
+		self.toggleFeedList();
+	}
+};
+
+FeedView.prototype.dealloc = function () {
+	document.removeEventListener("keypress", this._keypress_listener, false );
+}
+FeedView.prototype.setReblogging = function () {
+	this.images[ this.imageIndex].reblogging = true;
+	this.showReblogging(true);
+}
+FeedView.prototype.showReblogging = function (b) {
+	var e = document.getElementById("reblogging");
+	if ( b ) 
+		e.style.display = "block";
+	else
+		e.style.display = "none";
+}
+
+FeedView.prototype.launchPicLens = function () {
+	this.ipc.sendMessage( {
+		event: 'piclens',
+	} );
+}
+FeedView.prototype.toggleFeedList = function () {
+	this.showFeedList  = ! this.showFeedList;
+	log('toggle', this.showFeedList);
+
+	var e = document.getElementById("sources");
+	if ( this.showFeedList ) {
+		e.style.display = 'block';
+	} else {
+		e.style.display = 'none';
+	}
+
+	onresize();
+	
+}
+
+
+FeedView.prototype.selectImageSource = function (id) {
+	this.selectedFeedId = id;
+
+	this.reset();
+
+
+	document.getElementById("image").style.display = "none";
+	document.getElementById("loading").style.display = "block";
+
+	log(id, this.feeds);
+	this.status( "connecting to " + this.feeds[id].name );
+
+	this.ipc.sendMessage( {
+		event: 'feed_select',
+		id: id
+	} );
+}
+FeedView.prototype.add = function (feed) {
+	document.getElementById("sources").style.visibility = 'visible';
+	this.status("");
+
+	var li = document.createElement('li');
+	li.appendChild( document.createTextNode(feed.name) );
+	li.setAttribute("id", "feed-" + feed.id);
+	li.addEventListener( 'click', function () {
+		__feedView.selectImageSource(feed.id);
+	}, false);
+	this.ul.appendChild(li);
+
+	this.feeds[feed.id] = feed;
+}
+
+FeedView.prototype.goRelative = function (n) {
+	this.imageIndex += n;
+	if ( this.imageIndex < 0 ) {
+		this.imageIndex = 0;
+		return;
+	}
+	if ( this.imageIndex > this.images.length ) {
+		this.imageIndex = this.images.length - 1;
+		return;
+	}
+
+	this.refresh();
+}
+
+FeedView.prototype.refresh = function () {
+
+	if ( this.images.length < this.imageIndex + this.prefetch_size ) {
+		this.ipc.sendMessage( {
+				event: 'prefetch',
+				index: this.imageIndex
+		} );
+	}
+
+	var img = this.images[this.imageIndex];
+	var e = document.getElementById("image");
+	if ( img ) {
+		e.src = img.imageSource;
+		this.caption(img.caption);
+		
+		this.showReblogging(img.reblogging);
+
+	} else {
+		this.caption();
+	}
+	e.style.display = img ?  'block' : 'none';
+	document.getElementById("loading").style.display = img ? "none" : "block";
+	
+	this.updateImageCount();
+}
+
+FeedView.prototype.caption = function (s) {
+	document.getElementById("image-caption").innerHTML = s || "";
+}
+FeedView.prototype.status = function (s) {
+	document.getElementById("status").innerHTML = s + this.progress;
+}
+
+FeedView.prototype.updateImageCount = function () {
+	if ( this.images.length == 0 ) {
+		this.status( "loading images..." );
+	} else {
+		this.status( ((this.imageIndex + 1)  + "/" + this.images.length) );
+	}
+}
+FeedView.prototype.updateProgress = function () {
+	var n = this.progress.length;
+	n = (n + 1) % 4;
+	this.progress = Array(n + 1).map( function () {} ).join(".");
+}
+
+FeedView.prototype.handshake = function () {
+	var self = this;
+	// establish connection.
+	this.handshakeCallback = function () {
+		window.clearInterval(self.timeoutTimer);
+		self.ready();
+	}
+	this.handshakeTimerId = window.setInterval( function () {
+		self.ipc.sendMessage( {
+				event: 'ping'
+		} );
+	}, 375 );
+}
+FeedView.prototype.ready = function () {
+	this.status("loading feeds...");
+	window.__feedView.ipc.sendMessage( {
+		event: 'page_load'
+	} );
+}
+
+FeedView.prototype.ipc_pong = function (msg) {
+	window.clearInterval( __feedView.handshakeTimerId );
+	__feedView.handshakeCallback.call(__feedView);
+}
+FeedView.prototype.ipc_feeds = function (msg) {
+	var self = this;
+	msg.feeds.map ( function (feed) {
+		self.add(feed);
+	} );
+}
+
+FeedView.prototype.ipc_piclens_rss = function (msg) {
+	var uri = msg.uri;
+
+	// need to launch indiretory.
+	// calling  directly PicLensContext#launch crashes firefox.
+	//document.location.href = 'javascript:(new PicLensContext()).launch(' + uri + ', "", "")';
+
+	//var uri = "file:///Users/kuma/Library/Caches/TemporaryItems/piclens.rss";
+ var f = document.createElement("form");
+  f.target = "_blank";
+  f.id = "__ff";
+  f.method="get";
+  f.action =  'data:text/html,' +
+    '<html><body><script type="text/javascript">' +
+		'window.addEventListener("load", function () {' + 
+		'var piclens = new PicLensContext();' +
+    'piclens.launch('+uri.quote()+', "", "");' +
+		'}, false ); ' +
+  '</scr' + 'ipt></body></html>';
+
+  document.documentElement.appendChild(f);
+  f.submit();
+}
+
+FeedView.prototype.ipc_page_request = function (msg) {
+	this.updateProgress();
+};
+FeedView.prototype.ipc_page_load = function (msg) {
+	this.updateImageCount();
+};
+FeedView.prototype.ipc_image_load = function (msg) {
+
+	if (msg.feed_id != this.selectedFeedId )
+		return;
+
+	var index = msg.img.index;
+	this.images[index] = msg.img;
+	if ( index == __feedView.imageIndex ) {
+		__feedView.refresh();
+	}
+	this.updateImageCount();
+};
+FeedView.prototype.ipc_sharingComplete = function (msg) {
+	var img = msg.img;
+};
+function stop () {
+			window.__feedView.ipc.sendMessage( {
+				event: 'broker_stop'
+			} );
+}
+
+function onresize (ev) {
+
+		var x = window.innerWidth;
+		var y = window.innerHeight;
+	
+		document.getElementById("feeds").style.height = y + "px";
+
+		var ic = document.getElementById("imagecontainer");
+
+		var X = x - (220 +35);
+		var Y = y;
+
+		if ( __feedView ) {
+			var offset = __feedView.feedListWidth;
+			if ( __feedView.showFeedList ) {
+				document.getElementById("status").style.left = (offset + 20) + "px";
+			} else {
+				document.getElementById("status").style.left = 20 + "px";
+				X += offset;
+			}
+		} 
+
+		ic.style.width  = X + "px";
+		ic.style.height = Y  + "px";
+
+		document.getElementById("loading").style.top = Math.floor((y - 32) / 2) + "px";
+
+		var img = document.getElementById("image");
+		img.style.maxWidth  = (X - 20) + "px";
+		img.style.maxHeight = (Y - 20) + "px";
+
+}
+
+  window.addEventListener('resize', onresize, false );
+
+	window.addEventListener('load', function () {
+		onresize();
+
+		window.__feedView = new FeedView("feeds", new IPC(document, 'iview-ipc-from-contentWindow'));
+
+		document.addEventListener('iview-ipc-from-chromeWindow', function (commandEvent)  {
+			var msg = commandEvent.getData('msg');
+			var f = window.__feedView[ "ipc_" + msg.event ];
+//			log("ipc from chrome", msg.event, msg, f);
+			if ( typeof f == 'function' ) {
+				f.call(window.__feedView, msg);
+			}
+		}, false );
+
+		window.addEventListener('unload', function () {
+			window.__feedView.ipc.sendMessage( {
+				event: 'page_unload'
+			} );
+			window.__feedView.dealloc();
+		}, false );
+
+		document.getElementById("help-handle").addEventListener('click', function () {
+			if ( this.innerHTML == '?' ) {
+				document.getElementById("help-content").style.display = "block";
+				this.innerHTML = 'X';
+			} else {
+				document.getElementById("help-content").style.display = "none";
+				this.innerHTML = '?';
+			}
+		}, false);
+		
+
+		__feedView.handshake();
+
+	}, false );
+
+
+// ]]>
+</script>
+
+	
+<body>
+<div id="container">
+<div id="status">Connecting to iview addon...</div>
+<div id="help">
+	<div id="help-label"><a href="javascript:void(0)" id="help-handle">?</a></div>
+	<div id="help-content">
+		<dl>
+			<dt>j</dt>
+			<dd>Next image</dd>
+			<dd style="clear:both"></dd>
+
+			<dt>k</dt>
+			<dd>Previous image</dd>
+			<dd style="clear:both"></dd>
+
+			<dt>z</dt>
+			<dd>Toggle feed list</dd>
+			<dd style="clear:both"></dd>
+
+			<dt>t</dt>
+			<dd>Share(if <a href="http://github.com/to/tombloo/wikis" target="_blank">Tombloo</a> is present)</dd>
+			<dd style="clear:both"></dd>
+			<dt>p</dt>
+			<dd>Launch Cooliris(if <a href="https://addons.mozilla.org/ja/firefox/addon/5579" target="_blank">Cooliris</a> is present)</dd>
+			<dd style="clear:both"></dd>
+		</dl>
+		<div class="about-iview">
+		iview for Firefox version 0.0.1
+		</div>
+	</div>
+</div>
+<div id="sources">
+	<ul id="feeds"></ul>
+</div>
+		<a href="javascript:stop()">STOP</a>
+	<div id="reblogging">
+		<img src="reblogging.gif" />
+		<span id="reblogging-message">Reblogging...</span>
+		</div>
+
+	<div id="imagecontainer">
+	<img id="loading" src="./loading.gif" />
+	<img id="image" />
+	<div id="image-caption"></div>
+	</div>
+
+</div>
+</body>
+</html>
