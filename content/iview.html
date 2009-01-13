@@ -5,7 +5,7 @@
 	<link rel="stylesheet" type="text/css" href="./style.css" media="all" />
 	<title>iview for Firefox</title>
 </head>
-<!--script type="text/javascript" charset="utf-8" src="./jquery-1.2.6.min.js"></script-->
+<script type="text/javascript" charset="utf-8" src="./jquery-1.2.6.min.js"></script>
 
 <script type="text/javascript" charset="utf-8">
 // <![CDATA[
@@ -13,7 +13,7 @@
 var debugLocal = 0;
 
 var log = function () {
-	window.console && console.log(arguments);
+	window.console && window.console.log(arguments);
 }
 
 // dummy listener
@@ -54,6 +54,7 @@ function FeedView(id, ipc) {
 }
 
 FeedView.prototype.reset = function () {
+	this.eos = false;
 	this.imageIndex = 0;
 	this.images = [];
 	this.selectedFeed = 0;
@@ -76,18 +77,33 @@ FeedView.prototype._keypress_listener =  function (ev) {
 	if ( ev.ctrlKey || ev.altKey || ev.shiftKey || ev.metaKey )
 		return;
 
+	var img = self.images[self.imageIndex];
 	if ( c == 't' ) {
+		if ( img.reblogging || img.reblogged ) {
+			return;
+		}
+
 		self.setReblogging();
 		self.ipc.sendMessage( {
 			event: 'share',
-			image: self.images[self.imageIndex]
+			image: img
 		} );
 	} else if ( c == 'j' ) {
 		self.goRelative(1);
 	} else if ( c == 'k' ) {
 		self.goRelative(-1);
+
+	} else if ( c == 's' ) {
+		self.goRelativeFeed(1);
+	} else if ( c == 'a' ) {
+		self.goRelativeFeed(-1);
+
 	} else if ( c == 'p' ) {
 		self.launchPicLens();
+	} else if ( c == 'o' ) {
+		self.open(img.permalink);
+	} else if ( c == 'h' ) {
+		toggleHelp();
 	} else if ( c == 'z' ) {
 		self.toggleFeedList();
 	}
@@ -96,18 +112,64 @@ FeedView.prototype._keypress_listener =  function (ev) {
 FeedView.prototype.dealloc = function () {
 	document.removeEventListener("keypress", this._keypress_listener, false );
 }
-FeedView.prototype.setReblogging = function () {
-	this.images[ this.imageIndex].reblogging = true;
-	this.showReblogging(true);
-}
-FeedView.prototype.showReblogging = function (b) {
-	var e = document.getElementById("reblogging");
-	if ( b ) 
-		e.style.display = "block";
-	else
-		e.style.display = "none";
+
+FeedView.prototype.removeCurrentFeed = function () {
+	this.ipc.sendMessage( {
+			event: 'remove_feed',
+			feed_id: this.selectedFeedId
+	} );
+	
+	var feed_id = this.selectedFeedId;
+	this.selectedFeedId = null;
+	delete this.feeds[feed_id];
+
+	var e = document.getElementById("feed-" + feed_id);
+			if ( ! e ) {
+				return;
+			}
+
+			e.parentNode.removeChild(e);
+	
+		document.getElementById('unsubscribe').style.display = 'none';
+
+		this.status("");
+		this.caption("");
+		document.getElementById('image').style.display = 'none';
+		document.getElementById('loading').style.display = 'none';
+
 }
 
+FeedView.prototype.selectedFeedName = function () {
+	var id = this.selectedFeedId;
+	return this.feeds[id].name;
+}
+
+FeedView.prototype.updateReblogStatus = function () {
+	var img = this.images[this.imageIndex];
+	if ( img ) {
+		this.showReblogging(img.reblogging);
+		this.showReblogged(img.reblogged);
+	}
+}
+FeedView.prototype.setReblogging = function () {
+	this.images[this.imageIndex].reblogging = true;
+	this.showReblogging(true);
+}
+FeedView.prototype.showReblogged = function (b) {
+	var e = document.getElementById("reblogging-done");
+	e.style.display = b ? "block" : "none";
+}
+FeedView.prototype.showReblogging = function (b) {
+	var e = document.getElementById("reblogging-message");
+	e.style.display = b ? "block" : "none";
+}
+
+FeedView.prototype.open = function (uri) {
+	this.ipc.sendMessage( {
+			event: 'open',
+			uri: uri
+	} );
+}
 FeedView.prototype.launchPicLens = function () {
 	this.ipc.sendMessage( {
 		event: 'piclens',
@@ -115,7 +177,6 @@ FeedView.prototype.launchPicLens = function () {
 }
 FeedView.prototype.toggleFeedList = function () {
 	this.showFeedList  = ! this.showFeedList;
-	log('toggle', this.showFeedList);
 
 	var e = document.getElementById("sources");
 	if ( this.showFeedList ) {
@@ -130,21 +191,31 @@ FeedView.prototype.toggleFeedList = function () {
 
 
 FeedView.prototype.selectImageSource = function (id) {
+	subscribeWindow.close();
+	document.getElementById('unsubscribe').style.display = "block";
+
+
+	if ( this.selectedFeedId ) {
+		document.getElementById( "feed-" + this.selectedFeedId ).className = "";
+	}
 	this.selectedFeedId = id;
 
 	this.reset();
 
-
+	document.getElementById( "feed-" + this.selectedFeedId ).className = "selected";
 	document.getElementById("image").style.display = "none";
 	document.getElementById("loading").style.display = "block";
+	document.getElementById("stream-status").style.display = "none";
 
-	log(id, this.feeds);
 	this.status( "connecting to " + this.feeds[id].name );
 
 	this.ipc.sendMessage( {
 		event: 'feed_select',
 		id: id
 	} );
+}
+FeedView.prototype.isSubscribed = function (id) {
+	return this.feeds[id];
 }
 FeedView.prototype.add = function (feed) {
 	document.getElementById("sources").style.visibility = 'visible';
@@ -159,6 +230,22 @@ FeedView.prototype.add = function (feed) {
 	this.ul.appendChild(li);
 
 	this.feeds[feed.id] = feed;
+}
+
+FeedView.prototype.goRelativeFeed = function (n) {
+	var feed_id = this.selectedFeedId ;
+	var e = document.getElementById("feed-" + feed_id);
+
+	var prop = (n > 0) ? 'nextSibling' : 'followingSibling';
+
+	n = Math.abs(n);
+	while ( n-- ) {
+		e = e[prop];
+	}
+	
+	var id = e.id.replace(/\D/g, '');
+	this.selectImageSource(id);
+
 }
 
 FeedView.prototype.goRelative = function (n) {
@@ -176,7 +263,14 @@ FeedView.prototype.goRelative = function (n) {
 }
 
 FeedView.prototype.refresh = function () {
+	var streamStatus = null;
 
+	if ( this.imageIndex == this.images.length ) {
+		if ( this.eos ) {
+			streamStatus = "No more images available.";
+		}
+	}
+	
 	if ( this.images.length < this.imageIndex + this.prefetch_size ) {
 		this.ipc.sendMessage( {
 				event: 'prefetch',
@@ -187,17 +281,39 @@ FeedView.prototype.refresh = function () {
 	var img = this.images[this.imageIndex];
 	var e = document.getElementById("image");
 	if ( img ) {
-		e.src = img.imageSource;
-		this.caption(img.caption);
-		
-		this.showReblogging(img.reblogging);
+		var imageElement = img.node;
+		if ( 1 ) {
+			imageElement.style.maxWidth = e.style.maxWidth;
+			imageElement.style.maxHeight = e.style.maxHeight;
+			var placeholder = document.getElementById("imagecontainer");
+			placeholder.removeChild(document.getElementById("image"));
+			imageElement.setAttribute("id", "image");
+			placeholder.appendChild(imageElement);
+			e = imageElement;
+		} else {
+			e.src = img.imageSource;
+		}
 
+		if ( img.loadErrorFlag ) {
+			streamStatus  = 'load error: ' + img.loadErrorFlag;
+		}
+
+		this.caption(img.caption);
+		this.updateReblogStatus();
 	} else {
 		this.caption();
 	}
 	e.style.display = img ?  'block' : 'none';
-	document.getElementById("loading").style.display = img ? "none" : "block";
+
+	var isLoading = !(img || this.eos);
+	document.getElementById("loading").style.display = isLoading ? "block" : "none";
+
 	
+	var streamStatusElement = document.getElementById("stream-status");
+	streamStatusElement.style.display = streamStatus ? 'inline' : 'none';
+	if ( streamStatus )
+		streamStatusElement.innerHTML = streamStatus;
+
 	this.updateImageCount();
 }
 
@@ -209,7 +325,7 @@ FeedView.prototype.status = function (s) {
 }
 
 FeedView.prototype.updateImageCount = function () {
-	if ( this.images.length == 0 ) {
+	if ( this.images.length == 0 && !this.eos ) {
 		this.status( "loading images..." );
 	} else {
 		this.status( ((this.imageIndex + 1)  + "/" + this.images.length) );
@@ -245,11 +361,21 @@ FeedView.prototype.ipc_pong = function (msg) {
 	window.clearInterval( __feedView.handshakeTimerId );
 	__feedView.handshakeCallback.call(__feedView);
 }
+FeedView.prototype.ipc_siteinfo = function (msg) {
+	log("ipc_siteinfos", msg);
+	subscribeWindow.setFeeds(msg.siteinfos);
+}
 FeedView.prototype.ipc_feeds = function (msg) {
+log("ipc_feeds", msg);
+	this.status("");
 	var self = this;
-	msg.feeds.map ( function (feed) {
-		self.add(feed);
-	} );
+	if (msg.feeds.length == 0 ) {
+		subscribeWindow.open();
+	} else {
+		msg.feeds.map ( function (feed) {
+			self.add(feed);
+		} );
+	}
 }
 
 FeedView.prototype.ipc_piclens_rss = function (msg) {
@@ -276,17 +402,27 @@ FeedView.prototype.ipc_piclens_rss = function (msg) {
   f.submit();
 }
 
+FeedView.prototype.ipc_eos = function (msg) {
+	log("ipc_eos");
+	this.eos = true;
+	this.refresh();
+}
+
 FeedView.prototype.ipc_page_request = function (msg) {
 	this.updateProgress();
 };
 FeedView.prototype.ipc_page_load = function (msg) {
 	this.updateImageCount();
 };
+FeedView.prototype.ipc_image_error = function (msg) {
+	var index = msg.img.index;
+	this.images[index] = msg.img;
+	if ( index == __feedView.imageIndex ) {
+		__feedView.refresh();
+	}
+	this.updateImageCount();
+};
 FeedView.prototype.ipc_image_load = function (msg) {
-
-	if (msg.feed_id != this.selectedFeedId )
-		return;
-
 	var index = msg.img.index;
 	this.images[index] = msg.img;
 	if ( index == __feedView.imageIndex ) {
@@ -295,7 +431,14 @@ FeedView.prototype.ipc_image_load = function (msg) {
 	this.updateImageCount();
 };
 FeedView.prototype.ipc_sharingComplete = function (msg) {
+	log("ipc_sharingComplete", msg);
 	var img = msg.img;
+	var n = img.index;
+
+	__feedView.images[n].reblogging = false;
+	__feedView.images[n].reblogged = true;
+
+	__feedView.updateReblogStatus();
 };
 function stop () {
 			window.__feedView.ipc.sendMessage( {
@@ -306,9 +449,12 @@ function stop () {
 function onresize (ev) {
 
 		var x = window.innerWidth;
-		var y = window.innerHeight;
-	
-		document.getElementById("feeds").style.height = y + "px";
+		var y = document.documentElement.clientHeight;
+
+		var height = subscribeWindow.w.clientHeight;
+		y = (y < height ? height + 10 /*top*/ : y );
+
+		document.getElementById("sources").style.height = y + "px";
 
 		var ic = document.getElementById("imagecontainer");
 
@@ -327,14 +473,29 @@ function onresize (ev) {
 
 		ic.style.width  = X + "px";
 		ic.style.height = Y  + "px";
-
-		document.getElementById("loading").style.top = Math.floor((y - 32) / 2) + "px";
+	
+		var loadingY = Math.floor((y - 32) / 2);
+		document.getElementById("loading").style.top = loadingY + "px";
+		document.getElementById("stream-status").style.top = (y / 8) + "px";
 
 		var img = document.getElementById("image");
 		img.style.maxWidth  = (X - 20) + "px";
 		img.style.maxHeight = (Y - 20) + "px";
 
 }
+
+function toggleHelp() {
+	var e = document.getElementById("help-handle");
+			if ( e.innerHTML == '?' ) {
+				document.getElementById("help-content").style.display = "block";
+				e.innerHTML = 'X';
+			} else {
+				document.getElementById("help-content").style.display = "none";
+				e.innerHTML = '?';
+			}
+}
+
+
 
   window.addEventListener('resize', onresize, false );
 
@@ -359,27 +520,97 @@ function onresize (ev) {
 			window.__feedView.dealloc();
 		}, false );
 
-		document.getElementById("help-handle").addEventListener('click', function () {
-			if ( this.innerHTML == '?' ) {
-				document.getElementById("help-content").style.display = "block";
-				this.innerHTML = 'X';
-			} else {
-				document.getElementById("help-content").style.display = "none";
-				this.innerHTML = '?';
-			}
-		}, false);
-		
+		document.getElementById("help-handle").addEventListener('click', toggleHelp, false);
 
 		__feedView.handshake();
 
 	}, false );
 
 
+var subscribeWindow = {
+	_id: "subscribe-window",
+	__siteinfos: {},
+	get w() {
+		return this._e || (this._e = document.getElementById(this._id));
+	},
+	open: function () {
+		this.w.style.display = 'block';
+		this.w.style.left = 
+			( (document.documentElement.clientWidth - this.w.clientWidth) / 2 ) + "px";
+		
+		onresize();
+
+		window.__feedView.ipc.sendMessage( {
+			event: 'siteinfo'
+		} );
+	},
+	close: function () {
+		this.w.style.display = 'none';
+		onresize();
+	},
+	setFeeds: function (siteinfos) {
+		document.getElementById("siteinfo-load-status").style.display = "none";
+		var listParent = document.getElementById("feed-list");
+
+		this.__siteinfos = {};
+		var self = this;
+		var html = siteinfos.map (function (siteinfo) {
+			var siteinfo_id = siteinfo.resource_url.replace(/^.+\/(\d+)$/, '$1');
+			var id = "siteinfo-" + siteinfo_id;
+		
+			siteinfo.id = siteinfo_id;
+			return siteinfo;
+
+		} ).filter( function (siteinfo) {
+			var b = __feedView.isSubscribed( siteinfo.id );
+			return !b;
+
+		} ).map( function (siteinfo) {
+			var code = "javascript:subscribeWindow.add(" + siteinfo.id.quote() + ")";
+
+			self.__siteinfos[siteinfo.id] = siteinfo;
+
+			return <li><a href={code} id={"siteinfo-" + siteinfo.id}>{siteinfo.name}</a></li>;
+		} ).join("");
+
+		listParent.innerHTML = html;
+		window.setTimeout( function () {
+			onresize();
+		}, 10);
+	},
+	add: function (siteinfo_id) {
+		var id = "siteinfo-" + siteinfo_id;
+		var e = document.getElementById(id);
+		
+		$("#" + id).slideUp();
+
+		var siteinfo  = this.__siteinfos[siteinfo_id];
+
+		__feedView.add( siteinfo );
+
+		window.__feedView.ipc.sendMessage( {
+			event: 'add_feed',
+			siteinfo: "" + uneval(siteinfo)
+		} );
+	},
+	unsubscribe: function () {
+		var name = __feedView.selectedFeedName();
+		if ( confirm("Are you sure to unsubscribe from \n " +
+			'"' + __feedView.selectedFeedName() + '"'   + " ?"  ) ) {
+
+			__feedView.removeCurrentFeed();
+		}
+	}
+}
+
 // ]]>
 </script>
 
 	
 <body>
+<div id="debug">
+	<a href="javascript:stop()">STOP</a>
+</div>
 <div id="container">
 <div id="status">Connecting to iview addon...</div>
 <div id="help">
@@ -394,8 +625,20 @@ function onresize (ev) {
 			<dd>Previous image</dd>
 			<dd style="clear:both"></dd>
 
+			<dt>s</dt>
+			<dd>Next feed</dd>
+			<dd style="clear:both"></dd>
+
+			<dt>a</dt>
+			<dd>Previous feed</dd>
+			<dd style="clear:both"></dd>
+
 			<dt>z</dt>
 			<dd>Toggle feed list</dd>
+			<dd style="clear:both"></dd>
+
+			<dt>o</dt>
+			<dd>Open permalink</dd>
 			<dd style="clear:both"></dd>
 
 			<dt>t</dt>
@@ -404,6 +647,9 @@ function onresize (ev) {
 			<dt>p</dt>
 			<dd>Launch Cooliris(if <a href="https://addons.mozilla.org/ja/firefox/addon/5579" target="_blank">Cooliris</a> is present)</dd>
 			<dd style="clear:both"></dd>
+			<dt>h</dt>
+			<dd>Show/hide this help</dd>
+			<dd style="clear:both"></dd>
 		</dl>
 		<div class="about-iview">
 		iview for Firefox version 0.0.1
@@ -411,20 +657,35 @@ function onresize (ev) {
 	</div>
 </div>
 <div id="sources">
-	<ul id="feeds"></ul>
+	<ul id="feeds">
+		<li id="open-subscribe-window" onclick="subscribeWindow.open()">+</li>
+	</ul>
 </div>
-		<a href="javascript:stop()">STOP</a>
 	<div id="reblogging">
-		<img src="reblogging.gif" />
-		<span id="reblogging-message">Reblogging...</span>
+		<span id="reblogging-message">
+			<img src="./reblogging.gif" />
+			Reblogging...
+		</span>
+		<span id="reblogging-done">Reblogged</span>
 		</div>
-
 	<div id="imagecontainer">
-	<img id="loading" src="./loading.gif" />
-	<img id="image" />
-	<div id="image-caption"></div>
+		<center><span id="stream-status" ></span></center>
+		<img id="loading" src="./loading.gif" />
+		<div id="image-caption"></div>
+		<img id="image" />
 	</div>
-
+</div>
+<div style="clear:both"><!-- --></div>
+<div id="subscribe-window">
+		<div id="subscribe-close"><a href="javascript:subscribeWindow.close()" title="close">x</a
+		></div>
+		<center>Subscribe</center>
+		<div id="siteinfo-load-status">loading siteinfo list...</div>
+		<ul id="feed-list">
+		</ul>
+</div>
+<div id="unsubscribe">
+<a href="javascript:subscribeWindow.unsubscribe()">unsubscribe</a>
 </div>
 </body>
 </html>

@@ -95,32 +95,39 @@ function createDocumentFragmentByString(doc, str) {
 }
 function createHTMLDocumentByString(doc, str, charset) {
 		if ( charset && charset != 'x-user-defined' ) {
-			log('charset', charset);
 		} else {
-			var  m = str.match( /<meta.+?>/i );
-			log("no charset specified", doc);
-			if ( m ) {
+			var  m;
+			if ( m = str.match( /<meta\b[^>]+?http-equiv=["']?content-type["']?[^>]+?>/i ) ) {
 				var meta = m[0];
-				m = meta.match( /content=(?:'(.+?)'|"(.+?)"|(\S+))/i );
-				var content = m[2] || m[3] || m[4];
+				m = meta.match( /content=(?:(?:'(.+?)')|(?:"(.+?)")|(\S+))/ );
+				var content = m[1] || m[2] || m[3];
 				if ( m = content.match(/charset=(\S+)/i ) ) {
-					log("meta found.", m);
 					var charset = m[1];
 					
 					charset = charset.replace(/(x-?)euc_jp/i, "euc-jp");
 					charset = charset.replace(/shift-jis/i, "SHIFT_JIS");
 					charset = charset.replace(/Windows-31j/, "SHIFT_JIS");
-
-					log("normalized charset", m[1], charset);
-
 				} else {
-					charset = 'utf-8'
+				}
+			} else if ( m = str.match( /<meta\b[^>]+?http-equiv=["']?charset["']?[^>]+?>/i ) ) {
+				var meta = m[0];
+				m = meta.match( /content=(?:(?:'(.+?)')|(?:"(.+?)")|(\S+))/i );
+				if ( m ) {
+					charset = m[1] || m[2] || m[3];
+					log(charset);
+				} else {
 				}
 			} else {
-					charset = 'utf-8'
 			}
 		}
-		str = convertToUnicode(str, charset);
+
+		if ( charset ) {
+			charset = charset.replace(/(x-?)euc_jp/i, "euc-jp");
+			charset = charset.replace(/shift-jis/i, "SHIFT_JIS");
+			charset = charset.replace(/Windows-31j/, "SHIFT_JIS");
+			//log("charset", charset);
+			str = convertToUnicode(str, charset);
+		}
 
     var html = str.replace(/<!DOCTYPE.*?>/, '').replace(/<html.*?>/, '').replace(/<\/html>.*/, '')
     var htmlDoc  = doc.implementation.createDocument(null, 'html', null)
@@ -131,7 +138,6 @@ function createHTMLDocumentByString(doc, str, charset) {
         fragment = htmlDoc.importNode(fragment, true)
     }
     htmlDoc.documentElement.appendChild(fragment)
-		log("doc", htmlDoc)
    return htmlDoc
 }
 
@@ -162,6 +168,8 @@ function valueOfNode (node) {
 				return u;
 			} else if (node.nodeType == node.TEXT_NODE ) {
 				return node.nodeValue;
+			} else {
+				return node;
 			}
 	} else {
 		return "";
@@ -171,13 +179,11 @@ function valueOfNode (node) {
 
 function convertToUnicode(s, charset){
 
-//if (charset.match(/utf-?8/i) )
-//	return s;
-
 	var converter = Components
 		.classes['@mozilla.org/intl/scriptableunicodeconverter']
 		.getService(Components.interfaces.nsIScriptableUnicodeConverter);
 	converter.charset = charset;
-  return converter.ConvertToUnicode(s);
+
+	return converter.ConvertToUnicode(s);
 }
 

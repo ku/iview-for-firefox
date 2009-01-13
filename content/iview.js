@@ -15,7 +15,19 @@
 // 
 //
 ( function () {
+var siteinfoURL = 'http://wedata.net/databases/iview/items.json';
+//var siteinfoURL = 'http://localhost/kuma/iview/content/items.json';
+//var siteinfoURL = 'http://localhost/kuma/iview/content/items.online.js';
 
+var jsonDecoder = Components.Constructor("@mozilla.org/dom/json;1", "nsIJSON");
+/*
+var ios = Components.classes["@mozilla.org/network/io-service;1"]
+			.getService(Components.interfaces.nsIIOService);
+var prefetchService = Components.classes["@mozilla.org/prefetch-service;1"].
+            getService(Components.interfaces.nsIPrefetchService);
+var observerService = Components.classes["@mozilla.org/observer-service;1"]
+                        .getService (Components.interfaces.nsIObserverService);
+*/
 var IPC = function (doc) {
 	this.doc = doc;
 	return this;
@@ -28,6 +40,7 @@ IPC.prototype.sendMessage = function (msg) {
 }
 
 var log = function () {
+	//Firebug.Console.log.apply(Firebug.Console, arguments);
 	Firebug.Console.log(arguments);
 }
 
@@ -53,6 +66,7 @@ XMLHttpRequest.get = function (u, onload) {
 }
 
 var RequestBroker = function (observer) {
+	this.requestsPerSec = 5;
 	this.disabled = false;
 	this.observer = observer;
 
@@ -86,7 +100,7 @@ var RequestBroker = function (observer) {
 				} );
 			}
 		}
-	}, 1500 );
+	}, 1000 / this.requestsPerSec );
 	return this;
 }
 RequestBroker.prototype.dealloc = function () {
@@ -103,22 +117,23 @@ RequestBroker.prototype.add = function (u, opts, depth, callback) {
 	} 
 }
 
-var iviewLoader = function (siteinfo, doc, eventListener) {
+var IviewLoader = function (siteinfo, doc, eventListener) {
 	this.init();
 
 	this.siteinfo = siteinfo;
 	this.doc = doc;
 
+	observerService.addObserver(this, this.topic, false);
+
 	this.requestopts = {
 		//charset: 'utf-8'
 	};
 	this.requestBroker = new RequestBroker(this);
-
 	this.requestNextPage();
 	this.eventListener = eventListener;
 	return this;
 }
-iviewLoader.prototype.init = function () {
+IviewLoader.prototype.init = function () {
 	this.currentPage = null;
 	this.lastPageURI = null;
 	this.lastPageDoc = null;
@@ -126,19 +141,30 @@ iviewLoader.prototype.init = function () {
 	this.PREFETCHSIZE = 20;
 	this.images = [];
 
+	this.topic = "prefetch-load-completed";
+
+	this.imagePrefetchQueue = [];
+
+	this.eos = false;
+
+	this.prefetchingImageURI = {};
+
 	this.requestingNextPage = false;
 	this.largestRequestedImageIndex = -1;
 }
-iviewLoader.prototype.dealloc = function () {
+IviewLoader.prototype.dealloc = function () {
 	this.requestBroker.dealloc();
 	this.PREFETCHSIZE = -0x7ffffffff;
+
+	observerService.removeObserver(this, this.topic);
 }
 
-iviewLoader.prototype.shouldPrefetch = function () {
+
+IviewLoader.prototype.shouldPrefetch = function () {
 	var b = ( this.images.length - this.largestRequestedImageIndex <= this.PREFETCHSIZE ) ;
 	return b;
 }
-iviewLoader.prototype.getAt = function (n) {
+IviewLoader.prototype.getAt = function (n) {
 	if ( n < 0 ) {
 		n = this.largestRequestedImageIndex;
 	}
@@ -153,13 +179,28 @@ iviewLoader.prototype.getAt = function (n) {
 
 	return this.images[n];
 }
-iviewLoader.prototype.requestNextPage = function () {
+IviewLoader.prototype.requestNextPage = function () {
+	if ( this.eos ) {
+		return;
+	}
+
 	if ( this.currentPage ) {
 		if ( !this.siteinfo.nextLink ) {
 			return;
 		}
-		var link = $X(this.siteinfo.nextLink, this.lastPageDoc).shift();
+		var xpath = this.siteinfo.nextLink;
+//		log("requestNextPage", xpath, this.lastPageDoc);
+		var nodes = $X(xpath, this.lastPageDoc);
+//		log("requestNextPage", nodes);
+		var link = nodes.shift();
 		var nextLink = valueOfNode(link);
+
+		// reaches at the end.
+		if ( !nextLink ) {
+			log("nextLink not found.", link, xpath);
+			this.reachAtEndOfStream();
+			return;
+		}
 
 		this.currentPage = abs(this.lastPageURI, nextLink);
 	} else {
@@ -169,6 +210,7 @@ iviewLoader.prototype.requestNextPage = function () {
 	//log("this.currentPage", this.currentPage, this.siteinfo.url, this.lastPageURI);
 	var nextPage = this.currentPage;
 	//log("nextPage", nextPage);
+	
 
 	this.requestingNextPage = true;
 	var self = this;
@@ -176,54 +218,53 @@ iviewLoader.prototype.requestNextPage = function () {
 	var d = self.requestBroker.add(nextPage, requestopts, 0, function(res) {
 		self.requestingNextPage = false;
 		self.lastPageURI = nextPage;
-		//log("new nextPage", nextPage);
-		self.onPageLoad.apply(self, arguments);
+		self.onPageLoad.apply(self, [res, nextPage]);
 	} );
 
 //	var obs = this.eventListener;
 //	obs && obs.onRequest && obs.onRequest.apply(obs);
 
 }
-iviewLoader.prototype.onSubrequestLoad = function (res, siteinfo, depth) {
-	log ("onSubRequestLoad", res, res.channel, res.channel.URI.asciiSpec);
+IviewLoader.prototype.onSubrequestLoad = function (res, siteinfo, seedURI, depth) {
+//	log ("onSubRequestLoad", res, res.channel, res.channel.URI.asciiSpec);
 	var doc = createHTMLDocumentByString(this.doc, res.responseText, res.channel.contentCharset);
-//	var paragraphes = $X( siteinfo.paragraph, doc );
+	var paragraphes = $X( siteinfo.paragraph, doc );
 //	log ("onSubRequest paragraphes", paragraphes);
 
 	var base = res.channel.URI.asciiSpec;
-	this.parseResponse(doc, siteinfo, base, {
+	this.parseResponse(doc, siteinfo, base, seedURI, {
 		permalink: base,
 		depth: depth
 	});
 }
-iviewLoader.prototype.onPageLoad = function (res) {
+IviewLoader.prototype.onPageLoad = function (res, seedURI) {
 	var siteinfo = this.siteinfo;
 
 	var doc = this.lastPageDoc = createHTMLDocumentByString(this.doc, res.responseText, res.channel.contentCharset);
-
+	
+	// FIXME: should be requested URI.
 	var base = this.lastPageURI;
-	this.parseResponse(doc, siteinfo, base);
+	this.parseResponse(doc, siteinfo, base, seedURI);
 }
-iviewLoader.prototype.parseResponse = function (doc, siteinfo, baseURI, hashTemplate) {
+IviewLoader.prototype.parseResponse = function (doc, siteinfo, baseURI, seedURI, hashTemplate) {
 	hashTemplate = hashTemplate || {};
+	var depth = (hashTemplate ? (hashTemplate.depth || 0) : 0 );
 
 	var paragraphes = $X( siteinfo.paragraph, doc );
 
-	//log("paragraphes", paragraphes.length, siteinfo.paragraph, siteinfo, paragraphes);
-
+	log("parse paragraphes", paragraphes.length, hashTemplate, siteinfo.paragraph, siteinfo, paragraphes);
 
 	var self = this;
 	var images = paragraphes.map ( function (paragraph, index) {
-		var img;
+		var img = null;
 		if ( siteinfo.subRequest && siteinfo.subRequest.paragraph ) {
 			img = self.parseParagraph(paragraph, siteinfo, baseURI);
 
 			var subpage = img.permalink;
 			var requestopts = self.requestBroker.requestopts;
-			var depth = (hashTemplate ? (hashTemplate.depth || 0) : 0 );
 			depth += 1;
 			var d = self.requestBroker.add(subpage, requestopts, depth, function(res) {
-				self.onSubrequestLoad.call(self, res, siteinfo.subRequest, depth);
+				self.onSubrequestLoad.call(self, res, siteinfo.subRequest, seedURI, depth);
 			} );
 
 //			var obs = this.eventListener;
@@ -250,34 +291,128 @@ iviewLoader.prototype.parseResponse = function (doc, siteinfo, baseURI, hashTemp
 					img = update(img, hashTemplate);
 					self.addToImageList(img);
 				} );
+				img = null;
 			} else {
 				img = self.parseParagraph(paragraph, siteinfo, baseURI);
 				img = update(img, hashTemplate);
 				self.addToImageList(img);
+				img.seedURI = seedURI;
 			}
 		}
 		return img;
 	} );
 
+	log(hashTemplate, hashTemplate.depth, hashTemplate.depth == 0);
+
+	if ( depth == 0 ) {
+		// ignore the case that zero paragraphes found in sub requests.
+		if ( paragraphes.length == 0 ) {
+			log("paragraphes not found.", siteinfo.paragraph, siteinfo, hashTemplate);
+			this.reachAtEndOfStream();
+			return;
+		}
+	}
+
 	var obs = this.eventListener;
-	obs && obs.onPageLoad && obs.onPageLoad.apply(obs);
-	return images;
+	obs && obs.onPageLoad && obs.onPageLoad.apply(obs, [this]);
 }
-iviewLoader.prototype.addToImageList = function (img) {
-	if ( img.imageSource && img.permalink ) {
+IviewLoader.prototype.reachAtEndOfStream = function () {
+	this.eos = true;
+	var obs = this.eventListener;
+	obs && obs.onEndOfStream && obs.onEndOfStream.apply(obs);
+}
+
+IviewLoader.prototype.observe = function (aSubject, aTopic, aContext) {
+	var status = aSubject.QueryInterface(Ci.nsIDOMLoadStatus);
+
+	var uri = aSubject.uri;
+	var img = this.prefetchingImageURI[uri];
+	if ( img ) {
+		var imageElement = img.node;
+
+		if (imageElement instanceof HTMLImageElement) {
+			imageElement.src = uri;
+			img.__dom_load_status = status;
+		} else {
+			log("img.node is nto instanceof HTMLImageElement.", img, uri);
+		}
+	} else {
+		log("prefetched but not found.", uri, this.prefetchingImageURI);
+	}
+}
+
+IviewLoader.prototype._prefetch = function (img) {
+	img = img || this.imagePrefetchQueue.shift();
+
+	if ( !img ) 
+		return;
+
+	var src = img.src();
+	var permalink = img.permalink;
+	
+	var uri = ios.newURI(src, null, null);
+	var referrer = ios.newURI(permalink, null, null);
+	var sourceNode = null;
+	var explicit = true;
+
+	log ('prefetchService' , src, uri);
+
+	prefetchService.prefetchURI(uri, referrer, sourceNode, explicit);
+
+	if ( 0 ) {
+		prefetchService.prefetchURIForOfflineUse(uri, referrer, sourceNode, explicit);
+	}
+}
+
+IviewLoader.prototype.addToImageList = function (img) {
+	if ( img.src() && img.permalink ) {
+		img.feed_id = this.selectedFeedId;
+
+		var src = img.src();
+
+		if ( this.shouldPrefetch() ) {
+			this._prefetch(img);
+		} else {
+			this.imagePrefetchQueue.push(img);
+		}
+		
 		var i = new Image();
 		var self = this;
 		i.onload = function (ev) {
-			i.removeEventListener('load', img._load_listener, false);
+			//i.removeEventListener('load', img._load_listener, false);
 			var obs = self.eventListener;
-			obs && obs.onImageLoad && obs.onImageLoad.apply(obs, [img, ev]);
-		} ;
-		i.src = img.src();
+			obs && obs.onImageLoad && obs.onImageLoad.apply(obs, [img, ev, self]);
+		};
+		i.onerror = function (ev) {
+			var status = img.__dom_load_status.status;
+			if ( 2 == Math.floor(status / 100) ) {
+				// why this could be happen?
+				log("onerror invoked. but request seems ended in success.",img,
+					img.__dom_load_status.loadedSize, 
+					img.__dom_load_status.readyState, // 3 in success
+					status
+				);
+				//return i.onload(ev);
+			} else {
+				log("img.src load error.", img,
+					img.__dom_load_status.loadedSize, 
+					img.__dom_load_status.readyState, // 3 in success
+					status
+				);
+			}
+			img.loadErrorFlag = status;
+			
+			var obs = self.eventListener;
+			obs && obs.onImageError && obs.onImageError.apply(obs, [img, ev, self]);
+		};
 		img.index = this.images.length;
+		img.node = i;
+
+		this.prefetchingImageURI[src] = img;
 		this.images.push(img);
 	}
 }
-iviewLoader.prototype.parseParagraph = function (paragraph, siteinfo, baseURI) {
+IviewLoader.prototype.parseParagraph = function (paragraph, siteinfo, baseURI) {
 	var image = {
 		src: function () {
 			return this.imageSourceForReblog || this.imageSource;
@@ -304,31 +439,167 @@ iviewLoader.prototype.parseParagraph = function (paragraph, siteinfo, baseURI) {
 				v = abs(baseURI, v);
 			}
 		} else {
-			var node = rs.shift();
-			if ( k == 'caption' ) {
-				v =  node.textContent.replace(/(^\s*)|(\s*$)/g, '');
+			var node;
+			if ( rs instanceof Array ) {
+				node = rs.shift();
 			} else {
-				if ( node == null ) {
+				node = rs;
+			}
+
+			if ( k == 'caption' ) {
+				if ( node instanceof HTMLElement )
+					v =  node.textContent.replace(/(^\s*)|(\s*$)/g, '');
+				else {
+					v = valueOfNode(node);
+				}
+			} else {
+				if ( node == null )
 					continue;
+				
+				if ( node ) {
+					v = valueOfNode(node);
+					v = abs(baseURI, v);
 				} else {
-					if ( node ) {
-						v = valueOfNode(node);
-						v = abs(baseURI, v);
-					} else {
-						log("node is null", paragraph, node, k);
-					}
+					log("node is null", paragraph, node, k);
 				}
 			}
 		}
-
 		image[k] = v;
 	}
 	return image;
 }
 
+var subscribedFeeds = {
+	schema_version: 1,
+	subscribed_feeds: [],
+	feed_hash: {},
+	init: function () {
+		var ds = Cc['@mozilla.org/file/directory_service;1'].getService(Ci.nsIProperties);
+		var sqlitefile = ds.get("ProfD", Ci.nsIFile);
+		sqlitefile.append("iview.sqlite");
+
+		var d = this.db = new Database(sqlitefile);
+
+		if ( !d.tableExists("photos") ) {
+		log("create table 'photos'");
+			d.execute(<>
+			CREATE TABLE photos (
+			  id        INTEGER PRIMARY KEY,
+			  version     INTEGER,
+			  caption      TEXT,
+			  imagesource   TEXT,
+			  permalink    TEXT,
+			  status        INTEGER,
+			  feed_id       INTEGER
+			)
+			</>);
+		}
+
+		if ( !d.tableExists("feeds") ) {
+		log("create table 'feeds'");
+			d.execute(<>
+			CREATE TABLE feeds (
+			  id        INTEGER PRIMARY KEY,
+			  name		   TEXT,
+			  version     INTEGER,
+			  wedata_id      INTERGER,
+			  siteinfo      TEXT,
+			  subscribed_at    INTEGER
+			) 
+			</>);
+		}
+
+		this.Feeds = Entity( {
+			name: "feeds",
+			fields: {
+				id:      		"INTEGER PRIMARY KEY",
+				name:			"TEXT",
+				version:		"INTEGER",
+				wedata_id:		"INTEGER",
+				siteinfo:		"TEXT",
+				subscribed_at:	"INTEGER"
+			}
+		} );
+		extend(this.Feeds, { get db() { return d} } );
+	},
+	dealloc: function () {
+		this.db.close();
+	},
+	_fetchAllfeeds: function () {
+		var self = this;
+		var feeds = this.Feeds.findAll();
+		return this.subscribed_feeds = feeds.map ( function (feed) {
+				feed.__pkey_id = feed.id;
+				feed.id = feed.wedata_id;
+				feed.siteinfo = eval(feed.siteinfo);
+				self.feed_hash[ feed.wedata_id ] = feed;
+				return feed;
+		} );
+	},
+	feeds: function () {
+		var self = this;
+		if ( this.subscribed_feeds.length == 0 ) {
+			this._fetchAllfeeds();
+		}
+		return this.subscribed_feeds;
+	},
+	unserialize: function (flatSiteinfo) {
+		var siteinfo = {};
+
+		for ( var k in flatSiteinfo ) {
+			var pathes = k.split(/\./);
+			var leaf = pathes.pop();
+			var hash = pathes.reduce( function(stash, name) {
+				return (stash[name] || (stash[name] = {}));
+			}, siteinfo);
+			hash[leaf] = flatSiteinfo[k];
+		};
+		return siteinfo;
+	},
+	remove: function (feed_id) {
+		var feed = this.feed_hash[feed_id];
+		this.Feeds.deleteById(feed.__pkey_id);
+	},
+	add: function (siteinfo) {
+		var self = this;
+		var unserialized_siteinfo = this.unserialize(siteinfo.data);
+		var d = {
+			id: null,
+			version: self.schema_version,
+			wedata_id: siteinfo.id,
+			name: siteinfo.name,
+			siteinfo: uneval(unserialized_siteinfo),
+			subscribed_at: parseInt(Date.now()/1000),
+		};
+
+		this.Feeds.insert(d);
+
+		this._fetchAllfeeds();
+		/*
+		this.feed_hash[ siteinfo.id ] = update( d, {
+			id: siteinfo.id,
+			siteinfo: unserialized_siteinfo
+		} );
+		this.subscribed_feeds.push(siteinfo);
+		*/
+
+//		log(this, siteinfo, d );
+	},
+	get: function (id) {
+		var feed = this.feed_hash[id];
+		log("subscribedFeeds", id, feed, feed.siteinfo, this);
+		if ( feed )
+			return feed.siteinfo;
+		else
+			return null;
+	}
+}
+/*
 var iviewSiteinfo = {
 	siteinfos: null,
-	siteinfoURL: 'http://wedata.net/databases/iview/items.json',
+//siteinfoURL: 'http://wedata.net/databases/iview/items.json',
+//	siteinfoURL: 'http://localhost/kuma/iview/content/items.json',
+	siteinfoURL: 'http://localhost/kuma/iview/content/items.online.json',
 	siteinfoIdHash: null,
 	init: function () {
 		this.siteinfoIdHash = {};
@@ -355,7 +626,7 @@ var iviewSiteinfo = {
 		};
 		return siteinfo;
 	},
-	feeds: function () {
+	_load_siteinfo: function () {
 		if ( this.siteinfos ) {
 			return succeed(this.siteinfos)
 		} else {
@@ -370,10 +641,14 @@ var iviewSiteinfo = {
 			} );
 		}
 	},
+	feeds: function () {
+		return this._load_siteinfo();
+	},
 	get: function (id) {
 		return this.siteinfoIdHash[id];
 	}
 };
+*/
 
 
 var self = {
@@ -389,11 +664,12 @@ var self = {
 
 		this.ipc = new IPC(this.doc);
 
-		iviewSiteinfo.init();
+		subscribedFeeds.init();
 
 		this.doc.addEventListener(this.ipcEventName, this._ipc_dispatcher, false );
 	},
 	dealloc: function () {
+		subscribedFeeds.dealloc();
 		this.doc.removeEventListener(this.ipcEventName, this._ipc_dispatcher, false );
 	},
 	_ipc_dispatcher: function (msg) {
@@ -413,16 +689,21 @@ var self = {
 			event: 'pong',
 		} );
 	},
+	ipc_open: function (json) {
+		var u = json.uri;
+		var uri = makeURI(u);
+
+		var tab = Application.activeWindow.open(uri);
+	},
 	ipc_broker_stop: function (json) {
 		this.loader.requestBroker.dealloc();
 	},
 	ipc_page_load: function (json) {
 		var self = this;
-		iviewSiteinfo.feeds().addCallback( function (res) {
-			self.ipc.sendMessage( {
+		var feeds = subscribedFeeds.feeds();
+		self.ipc.sendMessage( {
 				event: 'feeds',
-				feeds: res
-			} );
+				feeds: feeds
 		} );
 	},
 	ipc_page_unload: function (json) {
@@ -431,29 +712,59 @@ var self = {
 	},
 	ipc_prefetch: function (json) {
 		this.loader.getAt(json.index);
+		this.loader._prefetch();
+	},
+	ipc_remove_feed: function (json) {
+		var feed_id = json.feed_id;
+		
+		// loader is associated with current feed.
+		this.loader = null;
+
+		subscribedFeeds.remove(feed_id);
+	},
+	ipc_add_feed: function (json) {
+		var siteinfo_json = json.siteinfo;
+
+		//var siteinfo = (new jsonDecoder()).decode(siteinfo_json);
+		var siteinfo = eval(siteinfo_json);
+		subscribedFeeds.add(siteinfo);
+	},
+	ipc_siteinfo: function () {
+		var self = this;
+		return doXHR( siteinfoURL ).addCallback( function (res) {
+			var nativeJSON = Components.classes["@mozilla.org/dom/json;1"]
+			.createInstance(Components.interfaces.nsIJSON);
+
+			var siteinfos = nativeJSON.decode(res.responseText);
+
+			self.ipc.sendMessage( {
+				event: 'siteinfo',
+				siteinfos: siteinfos
+			} );
+		} );
 	},
 	ipc_feed_select: function (json) {
 		var id = json.id;
 		this.selectedFeedId = id;
-		var info = iviewSiteinfo.get(id);
+		var info = subscribedFeeds.get(id);
 
 		if ( this.loader ) {
 			this.loader.dealloc();
 		}
-		this.loader = new iviewLoader(info, this.doc, this);
+
+		this.loader = new IviewLoader(info, this.doc, this);
 	},
 	ipc_share: function (json) {
-		var i = json.image;
-
+		var img = json.image;
 		
 		var env = Cc['@brasil.to/tombloo-service;1'].getService().wrappedJSObject;
-		var title = i.caption || i.permalink;
+		var title = img.caption || img.permalink;
 		var ps = {
 			type: 		'photo',
 			page:		title,
-			pageUrl:	i.permalink,
+			pageUrl:	img.permalink,
 			item:		title,
-			itemUrl:    i.imageSource
+			itemUrl:    img.src()
 		};
 			
 		var posters = env.models.getDefaults(ps);
@@ -504,8 +815,6 @@ var self = {
 		   '</channel></rss>');
 		os.close();
 
-		var ios = Components.classes["@mozilla.org/network/io-service;1"]
-			.getService(Components.interfaces.nsIIOService);
 		var path = ios.newFileURI(file);
 
 
@@ -525,25 +834,48 @@ var self = {
 		}
 
 	},
-	// iviewLoader listeners
+	// IviewLoader listeners
 	onRequest: function () {
 		this.ipc.sendMessage( {
 			event: 'page_request',
 		} );
 	},
-	onPageLoad: function () {
+	onEndOfStream: function (loader) {
+		this.ipc.sendMessage( {
+			event: 'eos',
+		} );
+	},
+	onPageLoad: function (loader) {
+		// skip messages from older loaders.
+		if ( this.loader != loader )
+			return;
+
 		this.ipc.sendMessage( {
 			event: 'page_load',
 		} );
 	},
-	onImageLoad: function (img, ev) {
+	onImageError: function (img, ev, loader) {
+		// skip messages from older loaders.
+		if ( this.loader != loader )
+			return;
+		
+		this.ipc.sendMessage( {
+			event: 'image_error',
+			img: img,
+			node: ev.target,
+		} );
+	},
+	onImageLoad: function (img, ev, loader) {
+		// skip messages from older loaders.
+		if ( this.loader != loader )
+			return;
+		
 		// make loader continue to prefetch.
 		this.loader.getAt(-1);
 
 		this.ipc.sendMessage( {
 			event: 'image_load',
 			img: img,
-			feed_id: this.selectedFeedId,
 			node: ev.target,
 			height: ev.target.height,
 			width : ev.target.width

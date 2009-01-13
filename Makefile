@@ -3,12 +3,12 @@ SRC=content/iview.js content/iview.html
 all:iview.xpi
 
 
-$(XPIFILE): $(SRC)
+$(XPIFILE): $(SRC) install.rdf
 	zip -r $(XPIFILE) install.rdf chrome.manifest  content/*
-
-update.rdf:install.rdf $(XPIFILE)
 	./sign $(XPIFILE) > update.rdf
 
 clean:
-	rm update.rdf wiiremocom.xpi
+	rm update.rdf $(XPIFILE)
 
+upload:
+	scp iview.xpi update.rdf ido.nu:www/iview/firefox/

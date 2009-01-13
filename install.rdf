@@ -9,12 +9,12 @@
   <RDF:Description RDF:about="urn:mozilla:install-manifest"
                    em:id="iviewfx@ido.nu"
                    em:name="iview"
-                   em:version="0.0.1"
-                   em:description=""
+                   em:version="0.0.4"
+                   em:description="iview for Firefox"
                    em:creator="KUMAGAI Kentaro"
-                   em:homepageURL="http://iview.ido.nu/"
-                   em:updateURL="http://iview.ido.nu/app/update.rdf"
-				   >
+                   em:homepageURL="http://ido.nu/kuma/iviewfx/"
+                   em:updateURL="http://ido.nu/kuma/iview/firefox/update.rdf"
+                   em:updateKey="MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDWCbBuaHHD5wxCIOPtoWdmOMEa/XdE3QODjUAWzSfeUEyCNiGNeBbKw0rylxo+MMWao6h3LOnVB3QnJSDpuEAXQ5ZuqanLQC91RRZboGTNSc9ZoUvnUWaSh0NftBJTxTBF3BSWbmbo1sG9nSN6fvTvGp5At13zs6ts7jIvrNWxsQIDAQAB">
     <em:targetApplication RDF:resource="rdf:#$S8CaT1"/>
   </RDF:Description>
 </RDF:RDF>
