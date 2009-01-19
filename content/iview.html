@@ -63,7 +63,7 @@ FeedView.prototype.reset = function () {
 
 	this.progress = '';
 
-	this.prefetch_size = 10;
+	this.prefetch_size = 20;
 	this.caption();
 }
 
@@ -326,7 +326,7 @@ FeedView.prototype.status = function (s) {
 
 FeedView.prototype.updateImageCount = function () {
 	if ( this.images.length == 0 && !this.eos ) {
-		this.status( "loading images..." );
+		this.status( "loading html..." );
 	} else {
 		this.status( ((this.imageIndex + 1)  + "/" + this.images.length) );
 	}
@@ -652,7 +652,7 @@ var subscribeWindow = {
 			<dd style="clear:both"></dd>
 		</dl>
 		<div class="about-iview">
-		iview for Firefox version 0.0.1
+		iview for Firefox version 0.0.5
 		</div>
 	</div>
 </div>

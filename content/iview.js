@@ -70,10 +70,14 @@ var RequestBroker = function (observer) {
 	this.disabled = false;
 	this.observer = observer;
 
+	this.availableSlots = 4;
+
 	this.queues = [];
 
 	var self = this;
 	this.brokertimer = window.setInterval( function () {
+		if ( self.availableSlots <= 0 )
+			return;
 		if ( self.disabled )
 			return;
 
@@ -91,8 +95,10 @@ var RequestBroker = function (observer) {
 			if ( args ) {
 				var [u, opts, depth, f] = args;
 				
+				self.availableSlots--;
 				var req = XMLHttpRequest.get(u, function () {
 					try {
+						self.availableSlots++;
 						f.apply(observer, [req]);
 					} catch(e) {
 						log(e);
@@ -123,6 +129,8 @@ var IviewLoader = function (siteinfo, doc, eventListener) {
 	this.siteinfo = siteinfo;
 	this.doc = doc;
 
+	this.pages = {};
+
 	observerService.addObserver(this, this.topic, false);
 
 	this.requestopts = {
@@ -147,7 +155,7 @@ IviewLoader.prototype.init = function () {
 
 	this.eos = false;
 
-	this.prefetchingImageURI = {};
+	this.imageURIHash = {};
 
 	this.requestingNextPage = false;
 	this.largestRequestedImageIndex = -1;
@@ -160,9 +168,29 @@ IviewLoader.prototype.dealloc = function () {
 }
 
 
+IviewLoader.prototype.shouldPrefetchImage = function () {
+	var n = this.largestRequestedImageIndex;
+	var m = n + this.PREFETCHSIZE;
+	var slots = this.images.slice(n, m);
+	
+	var self = this;
+	var b =  slots.some( function (img) {
+		var src = img.src();
+		return ! self.imageURIHash[src].__prefetching;
+	} );
+
+	return b;
+}
 IviewLoader.prototype.shouldPrefetch = function () {
 	var b = ( this.images.length - this.largestRequestedImageIndex <= this.PREFETCHSIZE ) ;
 	return b;
+}
+
+IviewLoader.prototype.prefetchRequest = function (n) {
+	this.getAt(n);
+	if ( this.shouldPrefetchImage() ) {
+		this._prefetch();
+	}
 }
 IviewLoader.prototype.getAt = function (n) {
 	if ( n < 0 ) {
@@ -172,6 +200,7 @@ IviewLoader.prototype.getAt = function (n) {
 		this.largestRequestedImageIndex = n;
 	}
 	if ( this.shouldPrefetch() ) {
+	log(this, this.requestingNextPage, this.eos);
 		if ( !this.requestingNextPage ) {
 			this.requestNextPage();
 		}
@@ -214,6 +243,7 @@ IviewLoader.prototype.requestNextPage = function () {
 
 	this.requestingNextPage = true;
 	var self = this;
+
 	var requestopts = self.requestBroker.requestopts;
 	var d = self.requestBroker.add(nextPage, requestopts, 0, function(res) {
 		self.requestingNextPage = false;
@@ -252,7 +282,7 @@ IviewLoader.prototype.parseResponse = function (doc, siteinfo, baseURI, seedURI,
 
 	var paragraphes = $X( siteinfo.paragraph, doc );
 
-	log("parse paragraphes", paragraphes.length, hashTemplate, siteinfo.paragraph, siteinfo, paragraphes);
+//	log("parse paragraphes", paragraphes.length, hashTemplate, siteinfo.paragraph, siteinfo, paragraphes);
 
 	var self = this;
 	var images = paragraphes.map ( function (paragraph, index) {
@@ -262,9 +292,8 @@ IviewLoader.prototype.parseResponse = function (doc, siteinfo, baseURI, seedURI,
 
 			var subpage = img.permalink;
 			var requestopts = self.requestBroker.requestopts;
-			depth += 1;
-			var d = self.requestBroker.add(subpage, requestopts, depth, function(res) {
-				self.onSubrequestLoad.call(self, res, siteinfo.subRequest, seedURI, depth);
+			var d = self.requestBroker.add(subpage, requestopts, depth + 1, function(res) {
+				self.onSubrequestLoad.call(self, res, siteinfo.subRequest, seedURI, depth + 1);
 			} );
 
 //			var obs = this.eventListener;
@@ -302,7 +331,7 @@ IviewLoader.prototype.parseResponse = function (doc, siteinfo, baseURI, seedURI,
 		return img;
 	} );
 
-	log(hashTemplate, hashTemplate.depth, hashTemplate.depth == 0);
+//	log("parse end", hashTemplate, hashTemplate.depth, hashTemplate.depth == 0);
 
 	if ( depth == 0 ) {
 		// ignore the case that zero paragraphes found in sub requests.
@@ -326,7 +355,7 @@ IviewLoader.prototype.observe = function (aSubject, aTopic, aContext) {
 	var status = aSubject.QueryInterface(Ci.nsIDOMLoadStatus);
 
 	var uri = aSubject.uri;
-	var img = this.prefetchingImageURI[uri];
+	var img = this.imageURIHash[uri];
 	if ( img ) {
 		var imageElement = img.node;
 
@@ -337,81 +366,90 @@ IviewLoader.prototype.observe = function (aSubject, aTopic, aContext) {
 			log("img.node is nto instanceof HTMLImageElement.", img, uri);
 		}
 	} else {
-		log("prefetched but not found.", uri, this.prefetchingImageURI);
+		log("prefetched but not found.", uri, this.imageURIHash);
 	}
 }
 
-IviewLoader.prototype._prefetch = function (img) {
-	img = img || this.imagePrefetchQueue.shift();
+IviewLoader.prototype._prefetch = function () {
+	var firstOne = this.imagePrefetchQueue[0];
+	var img = this.imagePrefetchQueue.shift();
 
 	if ( !img ) 
 		return;
 
 	var src = img.src();
 	var permalink = img.permalink;
+
 	
 	var uri = ios.newURI(src, null, null);
 	var referrer = ios.newURI(permalink, null, null);
 	var sourceNode = null;
 	var explicit = true;
 
-	log ('prefetchService' , src, uri);
+	log ('prefetchService' , img.index, this.imagePrefetchQueue.length, firstOne, firstOne == img );
 
 	prefetchService.prefetchURI(uri, referrer, sourceNode, explicit);
 
 	if ( 0 ) {
 		prefetchService.prefetchURIForOfflineUse(uri, referrer, sourceNode, explicit);
 	}
+	img.__prefetching = true;
 }
 
 IviewLoader.prototype.addToImageList = function (img) {
-	if ( img.src() && img.permalink ) {
-		img.feed_id = this.selectedFeedId;
+	var src = img.src();
+	if ( ! ( src && img.permalink ) )
+		return;
+	
+	img.feed_id = this.selectedFeedId;
 
-		var src = img.src();
-
-		if ( this.shouldPrefetch() ) {
-			this._prefetch(img);
-		} else {
-			this.imagePrefetchQueue.push(img);
+	var i = new Image();
+	var self = this;
+	i.onload = function (ev) {
+		//i.removeEventListener('load', img._load_listener, false);
+		if ( self.shouldPrefetchImage() ) {
+			self._prefetch();
 		}
+		var obs = self.eventListener;
+		obs && obs.onImageLoad && obs.onImageLoad.apply(obs, [img, ev, self]);
+	};
+	i.onerror = function (ev) {
+		var status = img.__dom_load_status.status;
+		if ( 2 == Math.floor(status / 100) ) {
+			// why this could be happen?
+			log("onerror invoked. but request seems ended in success.",img,
+				img.__dom_load_status.loadedSize, 
+				img.__dom_load_status.readyState, // 3 in success
+				status
+			);
+			//return i.onload(ev);
+		} else {
+			log("img.src load error.", img,
+				img.__dom_load_status.loadedSize, 
+				img.__dom_load_status.readyState, // 3 in success
+				status
+			);
+		}
+		img.loadErrorFlag = status;
 		
-		var i = new Image();
-		var self = this;
-		i.onload = function (ev) {
-			//i.removeEventListener('load', img._load_listener, false);
-			var obs = self.eventListener;
-			obs && obs.onImageLoad && obs.onImageLoad.apply(obs, [img, ev, self]);
-		};
-		i.onerror = function (ev) {
-			var status = img.__dom_load_status.status;
-			if ( 2 == Math.floor(status / 100) ) {
-				// why this could be happen?
-				log("onerror invoked. but request seems ended in success.",img,
-					img.__dom_load_status.loadedSize, 
-					img.__dom_load_status.readyState, // 3 in success
-					status
-				);
-				//return i.onload(ev);
-			} else {
-				log("img.src load error.", img,
-					img.__dom_load_status.loadedSize, 
-					img.__dom_load_status.readyState, // 3 in success
-					status
-				);
-			}
-			img.loadErrorFlag = status;
-			
-			var obs = self.eventListener;
-			obs && obs.onImageError && obs.onImageError.apply(obs, [img, ev, self]);
-		};
-		img.index = this.images.length;
-		img.node = i;
+		var obs = self.eventListener;
+		obs && obs.onImageError && obs.onImageError.apply(obs, [img, ev, self]);
+	};
+	img.index = this.images.length;
+	img.node = i;
 
-		this.prefetchingImageURI[src] = img;
-		this.images.push(img);
+	if ( this.imageURIHash[src] )
+		return;
+
+	this.images.push(img);
+	this.imageURIHash[src] = img;
+	this.imagePrefetchQueue.push(img);
+
+	if ( this.shouldPrefetchImage() ) {
+		this._prefetch();
 	}
 }
+
 IviewLoader.prototype.parseParagraph = function (paragraph, siteinfo, baseURI) {
 	var image = {
 		src: function () {
@@ -711,8 +749,7 @@ var self = {
 		this.loader.dealloc();
 	},
 	ipc_prefetch: function (json) {
-		this.loader.getAt(json.index);
-		this.loader._prefetch();
+		this.loader.prefetchRequest(json.index);
 	},
 	ipc_remove_feed: function (json) {
 		var feed_id = json.feed_id;

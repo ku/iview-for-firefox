@@ -1,0 +1,32 @@
+#!/usr/bin/perl
+
+use Digest::SHA1;
+
+my $HOME = '/home/kuma';
+my $SPOCK = "$HOME/bin/spock/nss_sign_data";
+my $MCCOY_PROFILEDIR = "$HOME/Library/Application Support/McCoy/Profiles/o0dla9hp.default";
+
+my $filename = shift or die;
+open F, "<$filename";
+
+my $sha1 = Digest::SHA1->new();
+$sha1->addfile(*F);
+my $digest = $sha1->hexdigest;
+
+
+my @result = qx{xsltproc style.xsl install.rdf};
+foreach ( @result ) {
+	/(em:updateHash)/ and s/\*/sha1:$digest/;
+	/(em:updateLink)/ and s/\*/$filename/;
+	print;
+}
+
+#open(SPOCK, "| $SPOCK '$MCCOY_PROFILEDIR'") or die;
+#
+#my $sig = qx{$HOME};
+#
+#	/(em:signature)/ and s/\*/$sig/;
+
+
+
+
