@@ -5,7 +5,7 @@
   <RDF:Description RDF:about="urn:mozilla:install-manifest"
                    em:id="iviewfx@ido.nu"
                    em:name="iview for Firefox"
-                   em:version="0.0.8"
+                   em:version="0.0.9"
                    em:description="iview for Firefox"
                    em:creator="KUMAGAI Kentaro"
                    em:homepageURL="http://ido.nu/kuma/iviewfx/"
