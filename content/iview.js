@@ -41,7 +41,10 @@ IPC.prototype.sendMessage = function (msg) {
 
 var log = function () {
 	//Firebug.Console.log.apply(Firebug.Console, arguments);
-	Firebug.Console.log(arguments);
+	if ( window.Firebug && window.Firebug.Console )
+		Firebug.Console.log(arguments);
+	else
+		dump.apply(window, arguments);
 }
 
 var XMLHttpRequest = function () {}
@@ -200,7 +203,7 @@ IviewLoader.prototype.getAt = function (n) {
 		this.largestRequestedImageIndex = n;
 	}
 	if ( this.shouldPrefetch() ) {
-	log(this, this.requestingNextPage, this.eos);
+//	log(this, this.requestingNextPage, this.eos);
 		if ( !this.requestingNextPage ) {
 			this.requestNextPage();
 		}
@@ -386,7 +389,7 @@ IviewLoader.prototype._prefetch = function () {
 	var sourceNode = null;
 	var explicit = true;
 
-	log ('prefetchService' , img.index, this.imagePrefetchQueue.length, firstOne, firstOne == img );
+//	log ('prefetchService' , img.index, this.imagePrefetchQueue.length, firstOne, firstOne == img );
 
 	prefetchService.prefetchURI(uri, referrer, sourceNode, explicit);
 
@@ -504,6 +507,10 @@ IviewLoader.prototype.parseParagraph = function (paragraph, siteinfo, baseURI) {
 		}
 		image[k] = v;
 	}
+
+	if ( !image.permalink )
+		image.permalink = baseURI;
+
 	return image;
 }
 
@@ -519,7 +526,6 @@ var subscribedFeeds = {
 		var d = this.db = new Database(sqlitefile);
 
 		if ( !d.tableExists("photos") ) {
-		log("create table 'photos'");
 			d.execute(<>
 			CREATE TABLE photos (
 			  id        INTEGER PRIMARY KEY,
@@ -534,7 +540,6 @@ var subscribedFeeds = {
 		}
 
 		if ( !d.tableExists("feeds") ) {
-		log("create table 'feeds'");
 			d.execute(<>
 			CREATE TABLE feeds (
 			  id        INTEGER PRIMARY KEY,
@@ -625,7 +630,7 @@ var subscribedFeeds = {
 	},
 	get: function (id) {
 		var feed = this.feed_hash[id];
-		log("subscribedFeeds", id, feed, feed.siteinfo, this);
+//		log("subscribedFeeds", id, feed, feed.siteinfo, this);
 		if ( feed )
 			return feed.siteinfo;
 		else
@@ -719,7 +724,7 @@ var self = {
 					f.call(self, json);
 				}
 		} catch (e) {
-			Firebug.Console.log(e);
+			log(e);
 		}
 	},
 	ipc_ping: function (json) {
@@ -796,23 +801,33 @@ var self = {
 		
 		var env = Cc['@brasil.to/tombloo-service;1'].getService().wrappedJSObject;
 		var title = img.caption || img.permalink;
-		var ps = {
-			type: 		'photo',
-			page:		title,
-			pageUrl:	img.permalink,
-			item:		title,
-			itemUrl:    img.src()
-		};
-			
-		var posters = env.models.getDefaults(ps);
 		
+		var d = ( img.XreblogEndpoint ) ? (
+			env.Tombloo.Service.extractors.ReBlog.extractByEndpoint( {
+				title: title,
+				href: 	img.permalink,
+			}, img.XreblogEndpoint )
+		) : (
+			succeed(  {
+				type: 		'photo',
+				page:		title,
+				pageUrl:	img.permalink,
+				item:		title,
+				itemUrl:    img.src()
+			} )
+		);
+
 		var self = this;
-		env.Tombloo.Service.post(ps, posters).addCallback( function () {
-		  self.ipc.sendMessage( {
-			  event: 'sharingComplete',
-			  img: img,
-		  } );
+		return d.addCallback( function (ps) {
+			var posters = env.models.getDefaults(ps);
+			env.Tombloo.Service.post(ps, posters).addCallback( function () {
+			  self.ipc.sendMessage( {
+				  event: 'sharingComplete',
+				  img: img,
+			  } );
+			} );
 		} );
+		
 	},
 	ipc_piclens: function (json) {
 

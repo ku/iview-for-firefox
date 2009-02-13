@@ -13,7 +13,6 @@ var log = function () {
 //          namespace: {h:"http://www.w3.org/1999/xhtml"}});
 function $X (exp, context) {
 	var type, namespace={};
-	// console.log(String(exp));
 	
 //FIXME
 	exp = exp.replace(/\bx:/g, 'descendant-or-self::');
@@ -114,7 +113,6 @@ function createHTMLDocumentByString(doc, str, charset) {
 				m = meta.match( /content=(?:(?:'(.+?)')|(?:"(.+?)")|(\S+))/i );
 				if ( m ) {
 					charset = m[1] || m[2] || m[3];
-					log(charset);
 				} else {
 				}
 			} else {
@@ -125,7 +123,6 @@ function createHTMLDocumentByString(doc, str, charset) {
 			charset = charset.replace(/(x-?)euc_jp/i, "euc-jp");
 			charset = charset.replace(/shift-jis/i, "SHIFT_JIS");
 			charset = charset.replace(/Windows-31j/, "SHIFT_JIS");
-			//log("charset", charset);
 			str = convertToUnicode(str, charset);
 		}
 

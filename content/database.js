@@ -170,7 +170,6 @@ extend(Database.prototype, {
 	 */
 	execute : function(sql, params) {
 		sql+='';
-		log("exec", sql);
 		var sqls = sql.split(';').map(Entity.compactSQL).filter(operator.truth);
 		if(sqls.length > 1){
 			var self = this;

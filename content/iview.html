@@ -13,7 +13,8 @@
 var debugLocal = 0;
 
 var log = function () {
-	window.console && window.console.log(arguments);
+	if ( window.console )
+		window.console.log(arguments);
 }
 
 // dummy listener
