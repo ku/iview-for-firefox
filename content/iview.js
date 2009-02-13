@@ -268,7 +268,7 @@ IviewLoader.prototype.onSubrequestLoad = function (res, siteinfo, seedURI, depth
 	this.parseResponse(doc, siteinfo, base, seedURI, {
 		permalink: base,
 		depth: depth
-	});
+	} );
 }
 IviewLoader.prototype.onPageLoad = function (res, seedURI) {
 	var siteinfo = this.siteinfo;
@@ -305,6 +305,9 @@ IviewLoader.prototype.parseResponse = function (doc, siteinfo, baseURI, seedURI,
 		} else {
 			if ( siteinfo.subParagraph && siteinfo.subParagraph.paragraph ) {
 				var d = self.parseParagraph(paragraph, siteinfo, baseURI);
+				// prevent from subParagraph.caption is overwritten with empty caption.
+				if ( !d.caption )
+					delete d.caption;
 
 				if ( siteinfo.subParagraph.cdata ) {
 					try {

@@ -175,7 +175,6 @@ function valueOfNode (node) {
 
 
 function convertToUnicode(s, charset){
-
 	var converter = Components
 		.classes['@mozilla.org/intl/scriptableunicodeconverter']
 		.getService(Components.interfaces.nsIScriptableUnicodeConverter);
