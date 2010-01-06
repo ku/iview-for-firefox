@@ -98,7 +98,7 @@ function createHTMLDocumentByString(doc, str, charset) {
 			var  m;
 			if ( m = str.match( /<meta\b[^>]+?http-equiv=["']?content-type["']?[^>]+?>/i ) ) {
 				var meta = m[0];
-				m = meta.match( /content=(?:(?:'(.+?)')|(?:"(.+?)")|(\S+))/ );
+				m = meta.match( /content=(?:(?:'(.+?)')|(?:"(.+?)")|(\S+))/i );
 				var content = m[1] || m[2] || m[3];
 				if ( m = content.match(/charset=(\S+)/i ) ) {
 					var charset = m[1];

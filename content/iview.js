@@ -478,7 +478,8 @@ IviewLoader.prototype.parseParagraph = function (paragraph, siteinfo, baseURI) {
 		if (typeof rs == 'string') {
 			v = rs;
 			if ( k == 'caption' ) {
-				v =  v.textContent.replace(/(^\s*)|(\s*$)/g, '');
+				if ( v instanceof HTMLElement )
+					v =  v.textContent.replace(/(^\s*)|(\s*$)/g, '');
 			} else {
 				v = abs(baseURI, v);
 			}
